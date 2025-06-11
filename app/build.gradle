@@ -20,7 +20,7 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file("Infinity.jks")
+            storeFile file("/keystore/Infinity.jks")
             storePassword "Infinity"
             keyAlias "Infinity"
             keyPassword "Infinity"
