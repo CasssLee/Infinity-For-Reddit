@@ -302,6 +302,7 @@
     <string name="archived_post_reply_unavailable">Archived post. Reply unavailable.</string>
     <string name="locked_post_comment_unavailable">Locked post. Comment unavailable.</string>
     <string name="locked_post_reply_unavailable">Locked post. Reply unavailable.</string>
+    <string name="locked_comment_reply_unavailable">Locked comment. Reply unavailable.</string>
 
     <string name="text">TEXT</string>
     <string name="link">LINK</string>
@@ -660,6 +661,7 @@
     <string name="settings_proxy_hostname">Hostname</string>
     <string name="settings_proxy_port">Port</string>
     <string name="settings_hide_fab_in_post_details">Hide Floating Action Button</string>
+    <string name="settings_category_media_title">Media</string>
 
     <string name="no_link_available">Cannot get the link</string>
 
@@ -672,6 +674,8 @@
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="discard_dialog_button">Discard</string>
+    <string name="save_comment_draft">Save comment draft?</string>
+    <string name="save_comment_draft_detail">Your draft will be saved.</string>
 
     <string name="no_data_received">No data received</string>
     <string name="no_image_path_received">No image path received</string>
@@ -1538,6 +1542,41 @@
     <string name="proxy_http">HTTP</string>
     <string name="proxy_socks">SOCKS</string>
     <string name="proxy_direct">Direct</string>
-    
-    <string name="jump_to_top_level_comment">Jump to Top-Level Comment</string>
+
+    <string name="jump_to_parent_comment">Jump to Parent Comment</string>
+    <string name="long_press_post_non_media_area">Long Press on Post (Non-Media Area)</string>
+    <string name="long_press_post_media">Long Press on Post Media</string>
+    <string name="show_post_options">Show Post Options</string>
+    <string name="preview_in_fullscreen">Preview in Fullscreen</string>
+
+    <string name="moderation">Moderation</string>
+    <string name="approve">Approve</string>
+    <string name="approved">Approved</string>
+    <string name="approve_failed">Approve failed</string>
+    <string name="remove">Remove</string>
+    <string name="removed">Removed</string>
+    <string name="remove_failed">Remove failed</string>
+    <string name="mark_as_spam">Mark as spam</string>
+    <string name="marked_as_spam">Marked as spam</string>
+    <string name="mark_as_spam_failed">Mark as spam failed</string>
+    <string name="set_sticky_post">Set sticky post</string>
+    <string name="set_sticky_post_failed">Set sticky post failed</string>
+    <string name="unset_sticky_post">Unset sticky post</string>
+    <string name="unset_sticky_post_failed">Unset sticky post failed</string>
+    <string name="lock">Lock</string>
+    <string name="locked">Locked</string>
+    <string name="lock_failed">Lock failed</string>
+    <string name="unlocked">Unlocked</string>
+    <string name="unlock_failed">Unlock failed</string>
+    <string name="distinguish_as_mod">Distinguish as moderator</string>
+    <string name="undistinguish_as_mod">Undistinguish as moderator</string>
+    <string name="distinguished_as_mod">Distinguished as mod</string>
+    <string name="distinguish_as_mod_failed">Distinguish as moderator failed</string>
+    <string name="undistinguished_as_mod">Undistinguished as moderator</string>
+    <string name="undistinguish_as_mod_failed">Undistinguish as moderator failed</string>
+    <string name="approved_status">Approved by %1$s</string>
+    <string name="post_removed_status">This post is removed</string>
+    <string name="post_spam_status">This post is removed as spam</string>
+    <string name="comment_removed_status">This comment is removed</string>
+    <string name="comment_spam_status">This comment is removed as spam</string>
 </resources>

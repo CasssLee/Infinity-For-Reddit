@@ -1,5 +1,6 @@
 package ml.docilealligator.infinityforreddit.adapters;
 
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -10,6 +11,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -19,7 +21,6 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -27,12 +28,15 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.constraintlayout.widget.ConstraintSet;
 import androidx.core.content.ContextCompat;
+import androidx.media3.common.C;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -40,6 +44,7 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.DefaultTimeBar;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.TimeBar;
+import androidx.media3.ui.TrackSelectionDialogBuilder;
 import androidx.paging.PagingDataAdapter;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ItemTouchHelper;
@@ -55,6 +60,7 @@ import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.Target;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.loadingindicator.LoadingIndicator;
 import com.google.common.collect.ImmutableList;
 import com.libRG.CustomTextView;
 
@@ -115,12 +121,10 @@ import ml.docilealligator.infinityforreddit.post.FetchStreamableVideo;
 import ml.docilealligator.infinityforreddit.post.MarkPostAsReadInterface;
 import ml.docilealligator.infinityforreddit.post.Post;
 import ml.docilealligator.infinityforreddit.post.PostPagingSource;
-import ml.docilealligator.infinityforreddit.thing.FetchRedgifsVideoLinks;
 import ml.docilealligator.infinityforreddit.thing.SaveThing;
 import ml.docilealligator.infinityforreddit.thing.StreamableVideo;
 import ml.docilealligator.infinityforreddit.thing.VoteThing;
 import ml.docilealligator.infinityforreddit.utils.APIUtils;
-import ml.docilealligator.infinityforreddit.utils.ShareScreenshotUtilsKt;
 import ml.docilealligator.infinityforreddit.utils.SharedPreferencesUtils;
 import ml.docilealligator.infinityforreddit.utils.Utils;
 import ml.docilealligator.infinityforreddit.videoautoplay.CacheManager;
@@ -256,6 +260,10 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     private boolean mFixedHeightPreviewInCard;
     private boolean mHideTextPostContent;
     private boolean mEasierToWatchInFullScreen;
+    private int mDataSavingModeDefaultResolution;
+    private int mNonDataSavingModeDefaultResolution;
+    private String mLongPressPostNonMediaAreaAction = SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS;
+    private String mLongPressPostMediaAction = SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS;
     private boolean mHandleReadPost;
     private ExoCreator mExoCreator;
     private Callback mCallback;
@@ -340,6 +348,8 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             mFixedHeightPreviewInCard = sharedPreferences.getBoolean(SharedPreferencesUtils.FIXED_HEIGHT_PREVIEW_IN_CARD, false);
             mHideTextPostContent = sharedPreferences.getBoolean(SharedPreferencesUtils.HIDE_TEXT_POST_CONTENT, false);
             mEasierToWatchInFullScreen = sharedPreferences.getBoolean(SharedPreferencesUtils.EASIER_TO_WATCH_IN_FULL_SCREEN, false);
+            mDataSavingModeDefaultResolution = Integer.parseInt(mSharedPreferences.getString(SharedPreferencesUtils.REDDIT_VIDEO_DEFAULT_RESOLUTION, "360"));
+            mNonDataSavingModeDefaultResolution = Integer.parseInt(mSharedPreferences.getString(SharedPreferencesUtils.REDDIT_VIDEO_DEFAULT_RESOLUTION_NO_DATA_SAVING, "0"));
 
             mPostLayout = postLayout;
             mDefaultLinkPostLayout = Integer.parseInt(sharedPreferences.getString(SharedPreferencesUtils.DEFAULT_LINK_POST_LAYOUT_KEY, "-1"));
@@ -1038,7 +1048,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     }
                     if (post.getPreviews() != null && !post.getPreviews().isEmpty()) {
                         ((PostCompactBaseViewHolder) holder).imageView.setVisibility(View.VISIBLE);
-                        ((PostCompactBaseViewHolder) holder).progressBar.setVisibility(View.VISIBLE);
+                        ((PostCompactBaseViewHolder) holder).loadingIndicator.setVisibility(View.VISIBLE);
                         loadImage(holder);
                     }
                 }
@@ -1349,7 +1359,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
 
     private void loadImage(final RecyclerView.ViewHolder holder) {
         if (holder instanceof PostWithPreviewTypeViewHolder) {
-            ((PostWithPreviewTypeViewHolder) holder).progressBar.setVisibility(View.VISIBLE);
+            ((PostWithPreviewTypeViewHolder) holder).loadingIndicator.setVisibility(View.VISIBLE);
             Post post = ((PostWithPreviewTypeViewHolder) holder).post;
             Post.Preview preview = ((PostWithPreviewTypeViewHolder) holder).preview;
             if (preview != null) {
@@ -1568,6 +1578,22 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         this.mEasierToWatchInFullScreen = easierToWatchInFullScreen;
     }
 
+    public void setLongPressPostNonMediaAreaAction(String value) {
+        mLongPressPostNonMediaAreaAction = value;
+    }
+
+    public void setLongPressPostMediaAction(String value) {
+        mLongPressPostMediaAction = value;
+    }
+
+    public void setDataSavingModeDefaultResolution(int value) {
+        mDataSavingModeDefaultResolution = value;
+    }
+
+    public void setNonDataSavingModeDefaultResolution(int value) {
+        mNonDataSavingModeDefaultResolution = value;
+    }
+
     @OptIn(markerClass = UnstableApi.class)
     @Override
     public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
@@ -1622,12 +1648,14 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                         ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.fetchRedgifsOrStreamableVideoCall = null;
                     }
                     ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.errorLoadingRedgifsImageView.setVisibility(View.GONE);
+                    ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.videoQualityButton.setVisibility(View.GONE);
                     ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.muteButton.setVisibility(View.GONE);
                     if (!((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.isManuallyPaused) {
                         ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.resetVolume();
                     }
                     mGlide.clear(((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.previewImageView);
                     ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.previewImageView.setVisibility(View.GONE);
+                    ((PostBaseVideoAutoplayViewHolder) holder).toroPlayer.setDefaultResolutionAlready = false;
                 } else if (holder instanceof PostWithPreviewTypeViewHolder) {
                     mGlide.clear(((PostWithPreviewTypeViewHolder) holder).imageView);
                     if (((PostWithPreviewTypeViewHolder) holder).imageWrapperFrameLayout != null) {
@@ -1636,7 +1664,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     ((PostWithPreviewTypeViewHolder) holder).imageView.setVisibility(View.GONE);
                     ((PostWithPreviewTypeViewHolder) holder).loadImageErrorTextView.setVisibility(View.GONE);
                     ((PostWithPreviewTypeViewHolder) holder).imageViewNoPreviewGallery.setVisibility(View.GONE);
-                    ((PostWithPreviewTypeViewHolder) holder).progressBar.setVisibility(View.GONE);
+                    ((PostWithPreviewTypeViewHolder) holder).loadingIndicator.setVisibility(View.GONE);
                     ((PostWithPreviewTypeViewHolder) holder).videoOrGifIndicator.setVisibility(View.GONE);
                     ((PostWithPreviewTypeViewHolder) holder).linkTextView.setVisibility(View.GONE);
                 } else if (holder instanceof PostBaseGalleryTypeViewHolder) {
@@ -1654,7 +1682,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 if (((PostCompactBaseViewHolder) holder).linkTextView != null) {
                     ((PostCompactBaseViewHolder) holder).linkTextView.setVisibility(View.GONE);
                 }
-                ((PostCompactBaseViewHolder) holder).progressBar.setVisibility(View.GONE);
+                ((PostCompactBaseViewHolder) holder).loadingIndicator.setVisibility(View.GONE);
                 ((PostCompactBaseViewHolder) holder).imageView.setVisibility(View.GONE);
                 ((PostCompactBaseViewHolder) holder).playButtonImageView.setVisibility(View.GONE);
                 ((PostCompactBaseViewHolder) holder).noPreviewPostImageFrameLayout.setVisibility(View.GONE);
@@ -1767,21 +1795,29 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     }
 
     private void openMedia(Post post) {
-        openMedia(post, 0);
+        openMedia(post, 0, false);
     }
 
-    private void openMedia(Post post, int galleryItemIndex) {
-        openMedia(post, galleryItemIndex, -1);
+    private void openMedia(Post post, boolean peekMedia) {
+        openMedia(post, 0, peekMedia);
+    }
+
+    private void openMedia(Post post, int galleryItemIndex, boolean peekMedia) {
+        openMedia(post, galleryItemIndex, -1, peekMedia);
     }
 
     private void openMedia(Post post, long videoProgress) {
-        openMedia(post, 0, videoProgress);
+        openMedia(post, 0, videoProgress, false);
     }
 
-    private void openMedia(Post post, int galleryItemIndex, long videoProgress) {
+    private void openMedia(Post post, int galleryItemIndex, long videoProgress, boolean peekMedia) {
         if (canStartActivity) {
             canStartActivity = false;
             if (post.getPostType() == Post.VIDEO_TYPE) {
+                if (peekMedia) {
+                    mActivity.setShouldTrackFullscreenMediaPeekTouchEvent(true);
+                }
+
                 Intent intent = new Intent(mActivity, ViewVideoActivity.class);
                 if (post.isImgur()) {
                     intent.setData(Uri.parse(post.getVideoUrl()));
@@ -1789,14 +1825,16 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 } else if (post.isRedgifs()) {
                     intent.putExtra(ViewVideoActivity.EXTRA_VIDEO_TYPE, ViewVideoActivity.VIDEO_TYPE_REDGIFS);
                     intent.putExtra(ViewVideoActivity.EXTRA_REDGIFS_ID, post.getRedgifsId());
-                    if (post.isLoadRedgifsOrStreamableVideoSuccess()) {
+                    intent.setData(Uri.parse(post.getVideoUrl()));
+                    intent.putExtra(ViewVideoActivity.EXTRA_VIDEO_DOWNLOAD_URL, post.getVideoDownloadUrl());
+                    /*if (post.isLoadRedgifsOrStreamableVideoSuccess()) {
                         intent.setData(Uri.parse(post.getVideoUrl()));
                         intent.putExtra(ViewVideoActivity.EXTRA_VIDEO_DOWNLOAD_URL, post.getVideoDownloadUrl());
-                    }
+                    }*/
                 } else if (post.isStreamable()) {
                     intent.putExtra(ViewVideoActivity.EXTRA_VIDEO_TYPE, ViewVideoActivity.VIDEO_TYPE_STREAMABLE);
                     intent.putExtra(ViewVideoActivity.EXTRA_STREAMABLE_SHORT_CODE, post.getStreamableShortCode());
-                    if (post.isLoadRedgifsOrStreamableVideoSuccess()) {
+                    if (post.isLoadedStreamableVideoAlready()) {
                         intent.setData(Uri.parse(post.getVideoUrl()));
                         intent.putExtra(ViewVideoActivity.EXTRA_VIDEO_DOWNLOAD_URL, post.getVideoDownloadUrl());
                     }
@@ -1813,6 +1851,10 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 intent.putExtra(ViewVideoActivity.EXTRA_IS_NSFW, post.isNSFW());
                 mActivity.startActivity(intent);
             } else if (post.getPostType() == Post.IMAGE_TYPE) {
+                if (peekMedia) {
+                    mActivity.setShouldTrackFullscreenMediaPeekTouchEvent(true);
+                }
+
                 Intent intent = new Intent(mActivity, ViewImageOrGifActivity.class);
                 intent.putExtra(ViewImageOrGifActivity.EXTRA_IMAGE_URL_KEY, post.getUrl());
                 intent.putExtra(ViewImageOrGifActivity.EXTRA_FILE_NAME_KEY, post.getSubredditName()
@@ -1822,6 +1864,10 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 intent.putExtra(ViewImageOrGifActivity.EXTRA_IS_NSFW, post.isNSFW());
                 mActivity.startActivity(intent);
             } else if (post.getPostType() == Post.GIF_TYPE) {
+                if (peekMedia) {
+                    mActivity.setShouldTrackFullscreenMediaPeekTouchEvent(true);
+                }
+
                 if (post.getMp4Variant() != null) {
                     Intent intent = new Intent(mActivity, ViewVideoActivity.class);
                     intent.setData(Uri.parse(post.getMp4Variant()));
@@ -1843,12 +1889,20 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     mActivity.startActivity(intent);
                 }
             } else if (post.getPostType() == Post.LINK_TYPE || post.getPostType() == Post.NO_PREVIEW_LINK_TYPE) {
-                Intent intent = new Intent(mActivity, LinkResolverActivity.class);
-                Uri uri = Uri.parse(post.getUrl());
-                intent.setData(uri);
-                intent.putExtra(LinkResolverActivity.EXTRA_IS_NSFW, post.isNSFW());
-                mActivity.startActivity(intent);
+                if (peekMedia) {
+                    canStartActivity = true;
+                } else {
+                    Intent intent = new Intent(mActivity, LinkResolverActivity.class);
+                    Uri uri = Uri.parse(post.getUrl());
+                    intent.setData(uri);
+                    intent.putExtra(LinkResolverActivity.EXTRA_IS_NSFW, post.isNSFW());
+                    mActivity.startActivity(intent);
+                }
             } else if (post.getPostType() == Post.GALLERY_TYPE) {
+                if (peekMedia) {
+                    mActivity.setShouldTrackFullscreenMediaPeekTouchEvent(true);
+                }
+
                 Intent intent = new Intent(mActivity, ViewRedditGalleryActivity.class);
                 intent.putExtra(ViewRedditGalleryActivity.EXTRA_POST, post);
                 intent.putExtra(ViewRedditGalleryActivity.EXTRA_GALLERY_ITEM_INDEX, galleryItemIndex);
@@ -2478,6 +2532,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         GifImageView previewImageView;
         ImageView errorLoadingRedgifsImageView;
         PlayerView videoPlayer;
+        ImageView videoQualityButton;
         ImageView muteButton;
         ImageView fullscreenButton;
         ImageView playPauseButton;
@@ -2491,10 +2546,11 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         private boolean isManuallyPaused;
         private Drawable playDrawable;
         private Drawable pauseDrawable;
+        private boolean setDefaultResolutionAlready;
 
         public VideoAutoplayImpl(View itemView, AspectRatioFrameLayout aspectRatioFrameLayout,
                                  GifImageView previewImageView, ImageView errorLoadingRedgifsImageView,
-                                 PlayerView videoPlayer, ImageView muteButton, ImageView fullscreenButton,
+                                 PlayerView videoPlayer, ImageView videoQualityButton, ImageView muteButton, ImageView fullscreenButton,
                                  ImageView playPauseButton, DefaultTimeBar progressBar,
                                  Drawable playDrawable, Drawable pauseDrawable) {
             this.itemView = itemView;
@@ -2502,6 +2558,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             this.previewImageView = previewImageView;
             this.errorLoadingRedgifsImageView = errorLoadingRedgifsImageView;
             this.videoPlayer = videoPlayer;
+            this.videoQualityButton = videoQualityButton;
             this.muteButton = muteButton;
             this.fullscreenButton = fullscreenButton;
             this.playPauseButton = playPauseButton;
@@ -2596,7 +2653,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
 
         void loadVideo(int position) {
             Post post = getPost();
-            if (post.isRedgifs() && !post.isLoadRedgifsOrStreamableVideoSuccess()) {
+            /*if (post.isRedgifs() && !post.isLoadedStreamableVideoAlready()) {
                 fetchRedgifsOrStreamableVideoCall =
                         mRedgifsRetrofit.create(RedgifsAPI.class).getRedgifsData(
                                 APIUtils.getRedgifsOAuthHeader(mCurrentAccountSharedPreferences
@@ -2609,7 +2666,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                             public void onFetchRedgifsVideoLinkSuccess(String webm, String mp4) {
                                 post.setVideoDownloadUrl(mp4);
                                 post.setVideoUrl(mp4);
-                                post.setLoadRedgifsOrStreamableVideoSuccess(true);
+                                post.setLoadedStreamableVideoAlready(true);
                                 if (position == getAdapterPosition()) {
                                     bindVideoUri(Uri.parse(post.getVideoUrl()));
                                 }
@@ -2622,7 +2679,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                                 }
                             }
                         });
-            } else if(post.isStreamable() && !post.isLoadRedgifsOrStreamableVideoSuccess()) {
+            } else */if(post.isStreamable() && !post.isLoadedStreamableVideoAlready()) {
                 fetchRedgifsOrStreamableVideoCall =
                         mStreamableApiProvider.get().getStreamableData(post.getStreamableShortCode());
                 FetchStreamableVideo.fetchStreamableVideoInRecyclerViewAdapter(mExecutor, new Handler(),
@@ -2633,7 +2690,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                                 StreamableVideo.Media media = streamableVideo.mp4 == null ? streamableVideo.mp4Mobile : streamableVideo.mp4;
                                 post.setVideoDownloadUrl(media.url);
                                 post.setVideoUrl(media.url);
-                                post.setLoadRedgifsOrStreamableVideoSuccess(true);
+                                post.setLoadedStreamableVideoAlready(true);
                                 if (position == getAdapterPosition()) {
                                     bindVideoUri(Uri.parse(post.getVideoUrl()));
                                 }
@@ -2657,7 +2714,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 mediaUri = Uri.parse(post.getVideoFallBackDirectUrl());
                 post.setVideoDownloadUrl(post.getVideoFallBackDirectUrl());
                 post.setVideoUrl(post.getVideoFallBackDirectUrl());
-                post.setLoadRedgifsOrStreamableVideoSuccess(true);
+                post.setLoadedStreamableVideoAlready(true);
                 if (container != null) {
                     container.onScrollStateChanged(RecyclerView.SCROLL_STATE_IDLE);
                 }
@@ -2702,6 +2759,81 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     public void onTracksChanged(@NonNull Tracks tracks) {
                         ImmutableList<Tracks.Group> trackGroups = tracks.getGroups();
                         if (!trackGroups.isEmpty()) {
+                            if (getPost().isNormalVideo()) {
+                                videoQualityButton.setVisibility(View.VISIBLE);
+                                videoQualityButton.setOnClickListener(view -> {
+                                    TrackSelectionDialogBuilder builder = new TrackSelectionDialogBuilder(mActivity, mActivity.getString(R.string.select_video_quality), helper.getPlayer(), C.TRACK_TYPE_VIDEO);
+                                    builder.setShowDisableOption(true);
+                                    builder.setAllowAdaptiveSelections(false);
+                                    Dialog dialog = builder.setTheme(R.style.MaterialAlertDialogTheme).build();
+                                    dialog.show();
+                                    if (dialog instanceof AlertDialog) {
+                                        ((AlertDialog) dialog).getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(mCustomThemeWrapper.getPrimaryTextColor());
+                                        ((AlertDialog) dialog).getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(mCustomThemeWrapper.getPrimaryTextColor());
+                                    }
+                                });
+
+                                if (!setDefaultResolutionAlready) {
+                                    int desiredResolution = 0;
+                                    if (mDataSavingMode) {
+                                        if (mDataSavingModeDefaultResolution > 0) {
+                                            desiredResolution = mDataSavingModeDefaultResolution;
+                                        }
+                                    } else if (mNonDataSavingModeDefaultResolution > 0) {
+                                        desiredResolution = mNonDataSavingModeDefaultResolution;
+                                    }
+
+                                    if (desiredResolution > 0) {
+                                        TrackSelectionOverride trackSelectionOverride = null;
+                                        int bestTrackIndex = -1;
+                                        int bestResolution = -1;
+                                        int worstResolution = Integer.MAX_VALUE;
+                                        int worstTrackIndex = -1;
+                                        Tracks.Group bestTrackGroup = null;
+                                        Tracks.Group worstTrackGroup = null;
+                                        for (Tracks.Group trackGroup : tracks.getGroups()) {
+                                            if (trackGroup.getType() == C.TRACK_TYPE_VIDEO) {
+                                                for (int trackIndex = 0; trackIndex < trackGroup.length; trackIndex++) {
+                                                    int trackResolution = Math.min(trackGroup.getTrackFormat(trackIndex).height, trackGroup.getTrackFormat(trackIndex).width);
+                                                    if (trackResolution <= desiredResolution && trackResolution > bestResolution) {
+                                                        bestTrackIndex = trackIndex;
+                                                        bestResolution = trackResolution;
+                                                        bestTrackGroup = trackGroup;
+                                                    }
+                                                    if (trackResolution < worstResolution) {
+                                                        worstTrackIndex = trackIndex;
+                                                        worstResolution = trackResolution;
+                                                        worstTrackGroup = trackGroup;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (bestTrackIndex != -1 && bestTrackGroup != null) {
+                                            trackSelectionOverride = new TrackSelectionOverride(
+                                                    bestTrackGroup.getMediaTrackGroup(),
+                                                    ImmutableList.of(bestTrackIndex)
+                                            );
+                                        } else if (worstTrackIndex != -1 && worstTrackGroup != null) {
+                                            trackSelectionOverride = new TrackSelectionOverride(
+                                                    worstTrackGroup.getMediaTrackGroup(),
+                                                    ImmutableList.of(worstTrackIndex)
+                                            );
+                                        }
+
+                                        if (trackSelectionOverride != null) {
+                                            helper.getPlayer().setTrackSelectionParameters(
+                                                    helper.getPlayer().getTrackSelectionParameters()
+                                                            .buildUpon()
+                                                            .addOverride(trackSelectionOverride)
+                                                            .build()
+                                            );
+                                        }
+                                    }
+                                    setDefaultResolutionAlready = true;
+                                }
+                            }
+
                             for (int i = 0; i < trackGroups.size(); i++) {
                                 String mimeType = trackGroups.get(i).getTrackFormat(0).sampleMimeType;
                                 if (mimeType != null && mimeType.contains("audio")) {
@@ -2937,21 +3069,30 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
 
             itemView.setOnLongClickListener(v -> {
                 Post post = getItem(getBindingAdapterPosition());
-                if (post == null) {
+                if (post == null || mLongPressPostNonMediaAreaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_NONE)) {
                     return false;
                 }
 
-                PostOptionsBottomSheetFragment postOptionsBottomSheetFragment;
-                if (post.getPostType() == Post.GALLERY_TYPE && this instanceof PostBaseGalleryTypeViewHolder) {
-                    postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post,
-                            getBindingAdapterPosition(),
-                            ((LinearLayoutManagerBugFixed) ((PostBaseGalleryTypeViewHolder) this).galleryRecyclerView.getLayoutManager()).findFirstVisibleItemPosition());
-                } else {
-                    postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post, getBindingAdapterPosition());
+                if (mLongPressPostNonMediaAreaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                    showPostOptions();
+                } else if (mLongPressPostNonMediaAreaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                    markPostRead(post, true);
+                    openMedia(post, true);
                 }
-                postOptionsBottomSheetFragment.show(mActivity.getSupportFragmentManager(), postOptionsBottomSheetFragment.getTag());
                 return true;
             });
+        }
+
+        void showPostOptions() {
+            PostOptionsBottomSheetFragment postOptionsBottomSheetFragment;
+            if (post.getPostType() == Post.GALLERY_TYPE && this instanceof PostBaseGalleryTypeViewHolder) {
+                postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post,
+                        getBindingAdapterPosition(),
+                        ((LinearLayoutManagerBugFixed) ((PostBaseGalleryTypeViewHolder) this).galleryRecyclerView.getLayoutManager()).findFirstVisibleItemPosition());
+            } else {
+                postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post, getBindingAdapterPosition());
+            }
+            postOptionsBottomSheetFragment.show(mFragment.getChildFragmentManager(), postOptionsBottomSheetFragment.getTag());
         }
 
         @Override
@@ -2971,7 +3112,6 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
                 if (mActivity != null && mActivity instanceof MarkPostAsReadInterface) {
                     ((MarkPostAsReadInterface) mActivity).markPostAsRead(post);
-                    mFragment.markPostAsRead(post);
                 }
             }
         }
@@ -3000,6 +3140,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                                         GifImageView previewImageView,
                                         ImageView errorLoadingRedgifsImageView,
                                         PlayerView videoPlayer,
+                                        ImageView videoQualityButton,
                                         ImageView muteButton,
                                         ImageView fullscreenButton,
                                         ImageView playPauseButton,
@@ -3035,7 +3176,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     shareButton);
 
             toroPlayer = new VideoAutoplayImpl(rootView, aspectRatioFrameLayout, previewImageView,
-                    errorLoadingRedgifsImageView, videoPlayer, muteButton, fullscreenButton, playPauseButton,
+                    errorLoadingRedgifsImageView, videoPlayer, videoQualityButton, muteButton, fullscreenButton, playPauseButton,
                     progressBar,
                     AppCompatResources.getDrawable(mActivity, R.drawable.ic_play_arrow_24dp),
                     AppCompatResources.getDrawable(mActivity, R.drawable.ic_pause_24dp)) {
@@ -3132,6 +3273,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostVideoTypeAutoplay,
                     binding.errorLoadingVideoImageViewItemPostVideoTypeAutoplay,
                     binding.playerViewItemPostVideoTypeAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -3172,6 +3314,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostVideoTypeAutoplay,
                     binding.errorLoadingVideoImageViewItemPostVideoTypeAutoplay,
                     binding.playerViewItemPostVideoTypeAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -3194,7 +3337,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     class PostWithPreviewTypeViewHolder extends PostBaseViewHolder {
         TextView linkTextView;
         ImageView imageViewNoPreviewGallery;
-        ProgressBar progressBar;
+        LoadingIndicator loadingIndicator;
         ImageView videoOrGifIndicator;
         TextView loadImageErrorTextView;
         @Nullable
@@ -3260,7 +3403,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                          MaterialButton shareButton,
                          TextView linkTextView,
                          ImageView imageViewNoPreviewGallery,
-                         ProgressBar progressBar,
+                         LoadingIndicator loadingIndicator,
                          ImageView videoOrGifIndicator,
                          TextView loadImageErrorTextView,
                          @Nullable FrameLayout imageWrapperFrameLayout,
@@ -3289,7 +3432,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
 
             this.linkTextView = linkTextView;
             this.imageViewNoPreviewGallery = imageViewNoPreviewGallery;
-            this.progressBar = progressBar;
+            this.loadingIndicator = loadingIndicator;
             this.videoOrGifIndicator = videoOrGifIndicator;
             this.loadImageErrorTextView = loadImageErrorTextView;
             this.imageWrapperFrameLayout = imageWrapperFrameLayout;
@@ -3302,7 +3445,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             linkTextView.setTextColor(mSecondaryTextColor);
             imageViewNoPreviewGallery.setBackgroundColor(mNoPreviewPostTypeBackgroundColor);
             imageViewNoPreviewGallery.setColorFilter(mNoPreviewPostTypeIconTint, android.graphics.PorterDuff.Mode.SRC_IN);
-            progressBar.setIndeterminateTintList(ColorStateList.valueOf(mColorAccent));
+            loadingIndicator.setIndicatorColor(mColorAccent);
             videoOrGifIndicator.setColorFilter(mMediaIndicatorIconTint, PorterDuff.Mode.SRC_IN);
             videoOrGifIndicator.setBackgroundTintList(ColorStateList.valueOf(mMediaIndicatorBackgroundColor));
             loadImageErrorTextView.setTextColor(mPrimaryTextColor);
@@ -3319,10 +3462,20 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
             });
 
-            imageView.setOnLongClickListener(view -> itemView.performLongClick());
+            imageView.setOnLongClickListener(view -> {
+                if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                    showPostOptions();
+                    return true;
+                } else if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                    markPostRead(post, true);
+                    openMedia(post, true);
+                    return true;
+                }
+                return false;
+            });
 
             loadImageErrorTextView.setOnClickListener(view -> {
-                progressBar.setVisibility(View.VISIBLE);
+                loadingIndicator.setVisibility(View.VISIBLE);
                 loadImageErrorTextView.setVisibility(View.GONE);
                 loadImage(this);
             });
@@ -3331,12 +3484,12 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 imageView.performClick();
             });
 
-            imageViewNoPreviewGallery.setOnLongClickListener(view -> itemView.performLongClick());
+            imageViewNoPreviewGallery.setOnLongClickListener(view -> imageView.performLongClick());
 
             glideRequestListener = new RequestListener<>() {
                 @Override
                 public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
-                    progressBar.setVisibility(View.GONE);
+                    loadingIndicator.setVisibility(View.GONE);
                     loadImageErrorTextView.setVisibility(View.VISIBLE);
                     return false;
                 }
@@ -3344,7 +3497,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 @Override
                 public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
                     loadImageErrorTextView.setVisibility(View.GONE);
-                    progressBar.setVisibility(View.GONE);
+                    loadingIndicator.setVisibility(View.GONE);
                     return false;
                 }
             };
@@ -3481,8 +3634,16 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
 
                             if (!dragged && !longPressed) {
                                 if (System.currentTimeMillis() - downTime >= longClickThreshold) {
-                                    itemView.performLongClick();
-                                    longPressed = true;
+                                    if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                                        galleryRecyclerView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                        showPostOptions();
+                                        longPressed = true;
+                                    } else if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                                        galleryRecyclerView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                        markPostRead(post, true);
+                                        openMedia(post, layoutManager.findFirstVisibleItemPosition(), true);
+                                        longPressed = true;
+                                    }
                                 }
                             }
 
@@ -3503,7 +3664,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                                     if (position >= 0) {
                                         if (post != null) {
                                             markPostRead(post, true);
-                                            openMedia(post, layoutManager.findFirstVisibleItemPosition());
+                                            openMedia(post, layoutManager.findFirstVisibleItemPosition(), false);
                                         }
                                     }
                                 }
@@ -3549,7 +3710,17 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
             });
 
-            noPreviewImageView.setOnLongClickListener(view -> itemView.performLongClick());
+            noPreviewImageView.setOnLongClickListener(view -> {
+                if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                    showPostOptions();
+                    return true;
+                } else if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                    markPostRead(post, true);
+                    openMedia(post, layoutManager.findFirstVisibleItemPosition(), true);
+                    return true;
+                }
+                return false;
+            });
         }
 
         public boolean isSwipeLocked() {
@@ -3687,7 +3858,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         TextView nameTextView;
         @Nullable TextView linkTextView;
         RelativeLayout relativeLayout;
-        ProgressBar progressBar;
+        LoadingIndicator loadingIndicator;
         ImageView imageView;
         ImageView playButtonImageView;
         FrameLayout noPreviewPostImageFrameLayout;
@@ -3714,7 +3885,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                          @Nullable CustomTextView flairTextView,
                          @Nullable TextView linkTextView,
                          RelativeLayout relativeLayout,
-                         ProgressBar progressBar,
+                         LoadingIndicator loadingIndicator,
                          ImageView imageView,
                          ImageView playButtonImageView,
                          FrameLayout noPreviewLinkImageFrameLayout,
@@ -3749,7 +3920,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             this.nameTextView = nameTextView;
             this.linkTextView = linkTextView;
             this.relativeLayout = relativeLayout;
-            this.progressBar = progressBar;
+            this.loadingIndicator = loadingIndicator;
             this.imageView = imageView;
             this.playButtonImageView = playButtonImageView;
             this.noPreviewPostImageFrameLayout = noPreviewLinkImageFrameLayout;
@@ -3847,7 +4018,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             }
             playButtonImageView.setColorFilter(mMediaIndicatorIconTint, PorterDuff.Mode.SRC_IN);
             playButtonImageView.setBackgroundTintList(ColorStateList.valueOf(mMediaIndicatorBackgroundColor));
-            progressBar.setIndeterminateTintList(ColorStateList.valueOf(mColorAccent));
+            loadingIndicator.setIndicatorColor(mColorAccent);
             noPreviewLinkImageView.setBackgroundColor(mNoPreviewPostTypeBackgroundColor);
             noPreviewLinkImageView.setColorFilter(mNoPreviewPostTypeIconTint, android.graphics.PorterDuff.Mode.SRC_IN);
             upvoteButton.setIconTint(ColorStateList.valueOf(mPostIconAndInfoColor));
@@ -3881,17 +4052,16 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                         params.height = 0;
                         bottomConstraintLayout.setLayoutParams(params);
                     }
-                } else {
-                    Post post = getItem(getBindingAdapterPosition());
-                    if (post == null) {
-                        return false;
-                    }
-
-                    PostOptionsBottomSheetFragment postOptionsBottomSheetFragment;
-                    postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post, getBindingAdapterPosition());
-                    postOptionsBottomSheetFragment.show(mActivity.getSupportFragmentManager(), postOptionsBottomSheetFragment.getTag());
+                    return true;
+                } else if (mLongPressPostNonMediaAreaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                    showPostOptions();
+                    return true;
+                } else if (mLongPressPostNonMediaAreaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                    markPostRead(post, true);
+                    openMedia(post, true);
+                    return true;
                 }
-                return true;
+                return false;
             });
 
             imageView.setOnClickListener(view -> {
@@ -3906,23 +4076,48 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
             });
 
+            imageView.setOnLongClickListener(v -> {
+                if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_SHOW_POST_OPTIONS)) {
+                    showPostOptions();
+                    return true;
+                } else if (mLongPressPostMediaAction.equals(SharedPreferencesUtils.LONG_PRESS_POST_VALUE_PREVIEW_IN_FULLSCREEN)) {
+                    markPostRead(post, true);
+                    openMedia(post, true);
+                    return true;
+                }
+                return false;
+            });
+
             noPreviewLinkImageFrameLayout.setOnClickListener(view -> {
                 imageView.performClick();
             });
 
+            noPreviewLinkImageFrameLayout.setOnLongClickListener(view -> imageView.performLongClick());
+
             requestListener = new RequestListener<>() {
                 @Override
                 public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
-                    progressBar.setVisibility(View.GONE);
+                    loadingIndicator.setVisibility(View.GONE);
                     return false;
                 }
 
                 @Override
                 public boolean onResourceReady(@NonNull Drawable resource, @NonNull Object model, Target<Drawable> target, @NonNull DataSource dataSource, boolean isFirstResource) {
-                    progressBar.setVisibility(View.GONE);
+                    loadingIndicator.setVisibility(View.GONE);
                     return false;
                 }
             };
+        }
+
+        void showPostOptions() {
+            Post post = getItem(getBindingAdapterPosition());
+            if (post == null) {
+                return;
+            }
+
+            PostOptionsBottomSheetFragment postOptionsBottomSheetFragment;
+            postOptionsBottomSheetFragment = PostOptionsBottomSheetFragment.newInstance(post, getBindingAdapterPosition());
+            postOptionsBottomSheetFragment.show(mFragment.getChildFragmentManager(), postOptionsBottomSheetFragment.getTag());
         }
 
         @Override
@@ -3944,7 +4139,6 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
                 if (mActivity != null && mActivity instanceof MarkPostAsReadInterface) {
                     ((MarkPostAsReadInterface) mActivity).markPostAsRead(post);
-                    mFragment.markPostAsRead(post);
                 }
             }
         }
@@ -4106,7 +4300,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
             }
             itemView.setBackgroundTintList(ColorStateList.valueOf(mCardViewBackgroundColor));
             binding.titleTextViewItemPostGallery.setTextColor(mPostTitleColor);
-            binding.progressBarItemPostGallery.setIndeterminateTintList(ColorStateList.valueOf(mColorAccent));
+            binding.progressBarItemPostGallery.setIndicatorColor(mColorAccent);
             binding.imageViewNoPreviewItemPostGallery.setBackgroundColor(mNoPreviewPostTypeBackgroundColor);
             binding.imageViewNoPreviewItemPostGallery.setColorFilter(mNoPreviewPostTypeIconTint, android.graphics.PorterDuff.Mode.SRC_IN);
             binding.videoOrGifIndicatorImageViewItemPostGallery.setColorFilter(mMediaIndicatorIconTint, PorterDuff.Mode.SRC_IN);
@@ -4187,7 +4381,6 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
                 if (mActivity != null && mActivity instanceof MarkPostAsReadInterface) {
                     ((MarkPostAsReadInterface) mActivity).markPostAsRead(post);
-                    mFragment.markPostAsRead(post);
                 }
             }
         }
@@ -4384,7 +4577,6 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                 }
                 if (mActivity != null && mActivity instanceof MarkPostAsReadInterface) {
                     ((MarkPostAsReadInterface) mActivity).markPostAsRead(post);
-                    mFragment.markPostAsRead(post);
                 }
             }
         }
@@ -4420,6 +4612,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostCard2VideoAutoplay,
                     binding.errorLoadingVideoImageViewItemPostCard2VideoAutoplay,
                     binding.playerViewItemPostCard2VideoAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -4462,6 +4655,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostCard2VideoAutoplay,
                     binding.errorLoadingVideoImageViewItemPostCard2VideoAutoplay,
                     binding.playerViewItemPostCard2VideoAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -4600,7 +4794,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     }
 
     @UnstableApi
-    class PostMaterial3CardVideoAutoplayViewHolder extends PostBaseVideoAutoplayViewHolder {
+    public class PostMaterial3CardVideoAutoplayViewHolder extends PostBaseVideoAutoplayViewHolder {
         PostMaterial3CardVideoAutoplayViewHolder(ItemPostCard3VideoTypeAutoplayBinding binding) {
             super(binding.getRoot(),
                     binding.iconGifImageViewItemPostCard3VideoTypeAutoplay,
@@ -4620,6 +4814,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostCard3VideoTypeAutoplay,
                     binding.errorLoadingVideoImageViewItemPostCard3VideoTypeAutoplay,
                     binding.playerViewItemPostCard3VideoTypeAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -4640,7 +4835,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
     }
 
     @UnstableApi
-    class PostMaterial3CardVideoAutoplayLegacyControllerViewHolder extends PostBaseVideoAutoplayViewHolder {
+    public class PostMaterial3CardVideoAutoplayLegacyControllerViewHolder extends PostBaseVideoAutoplayViewHolder {
         PostMaterial3CardVideoAutoplayLegacyControllerViewHolder(ItemPostCard3VideoTypeAutoplayLegacyControllerBinding binding) {
             super(binding.getRoot(),
                     binding.iconGifImageViewItemPostCard3VideoTypeAutoplay,
@@ -4660,6 +4855,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
                     binding.previewImageViewItemPostCard3VideoTypeAutoplay,
                     binding.errorLoadingVideoImageViewItemPostCard3VideoTypeAutoplay,
                     binding.playerViewItemPostCard3VideoTypeAutoplay,
+                    binding.getRoot().findViewById(R.id.video_quality_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.mute_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.fullscreen_exo_playback_control_view),
                     binding.getRoot().findViewById(R.id.exo_play),
@@ -4752,7 +4948,7 @@ public class PostRecyclerViewAdapter extends PagingDataAdapter<Post, RecyclerVie
         }
     }
 
-    class PostMaterial3CardTextTypeViewHolder extends PostTextTypeViewHolder {
+    public class PostMaterial3CardTextTypeViewHolder extends PostTextTypeViewHolder {
         PostMaterial3CardTextTypeViewHolder(@NonNull ItemPostCard3TextBinding binding) {
             super(binding.getRoot());
             setBaseView(
